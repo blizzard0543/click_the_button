@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Click the Button - 傲嬌按鈕大挑戰</title>
+    <!-- 引入 Tailwind CSS 以快速排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 基礎全螢幕設定 */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* 防止捲動軸出現 */
+            background: radial-gradient(circle at center, #f8fafc, #cbd5e1);
+            font-family: 'Inter', sans-serif;
+            user-select: none; /* 防止反白文字 */
+        }
+
+        /* 網頁背景點狀裝飾 */
+        .bg-pattern {
+            position: absolute;
+            inset: 0;
+            background-image: radial-gradient(#94a3b8 1px, transparent 1px);
+            background-size: 20px 20px;
+            opacity: 0.3;
+            z-index: 0;
+        }
+
+        /* 核心按鈕樣式 */
+        #shy-btn {
+            position: absolute;
+            top: 0;
+            left: 0;
+            /* 預設隱藏，待 JS 初始化後顯示 */
+            opacity: 0;
+            padding: 16px 32px;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: white;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            border: none;
+            border-radius: 9999px; /* 圓角膠囊形狀 */
+            box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.5), 0 8px 10px -6px rgba(37, 99, 235, 0.5);
+            cursor: pointer;
+            z-index: 10;
+            transition: background 0.3s ease, box-shadow 0.3s ease, opacity 0.5s ease;
+            white-space: nowrap;
+            /* 為了效能，使用 will-change 提示瀏覽器優化 transform */
+            will-change: transform;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        #shy-btn:hover {
+            box-shadow: 0 20px 25px -5px rgba(37, 99, 235, 0.6), 0 8px 10px -6px rgba(37, 99, 235, 0.5);
+        }
+
+        #shy-btn.caught {
+            background: linear-gradient(135deg, #10b981, #059669); /* 點擊成功變綠色 */
+            box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.5);
+        }
+
+        #shy-btn.evading {
+            background: linear-gradient(135deg, #ef4444, #dc2626); /* 逃跑變紅色 */
+            box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.5);
+        }
+
+        /* 慶祝動畫 Overlay */
+        #success-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none; /* 預設不阻擋點擊 */
+            transition: opacity 0.4s ease;
+        }
+
+        #success-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .pop-in {
+            transform: scale(0.8);
+            opacity: 0;
+            transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.5s ease;
+        }
+
+        #success-overlay.active .pop-in {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- 背景圖案 -->
+    <div class="bg-pattern"></div>
+
+    <!-- 頂部計分板 -->
+    <div class="absolute top-6 left-0 w-full flex justify-center z-0 pointer-events-none">
+        <div class="bg-white/70 backdrop-blur-md px-6 py-2 rounded-full shadow-sm text-slate-700 font-bold tracking-wide">
+            捕獲次數: <span id="score" class="text-blue-600 text-xl ml-2">0</span>
+        </div>
+    </div>
+
+    <!-- 核心按鈕 -->
+    <button id="shy-btn">
+        <span id="btn-text">Click Me!</span>
+        <span id="btn-emoji">😊</span>
+    </button>
+
+    <!-- 成功過關的 Modal -->
+    <div id="success-overlay">
+        <div class="pop-in bg-white p-10 rounded-3xl shadow-2xl text-center max-w-sm mx-4 border border-slate-100">
+            <div class="text-6xl mb-4">🎉</div>
+            <h2 class="text-3xl font-extrabold text-slate-800 mb-2">抓到啦！</h2>
+            <p class="text-slate-500 mb-8">手速真快，這顆傲嬌的按鈕被你制服了。</p>
+            <button id="restart-btn" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-transform active:scale-95">
+                再來一次
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const btn = document.getElementById('shy-btn');
+            const btnText = document.getElementById('btn-text');
+            const btnEmoji = document.getElementById('btn-emoji');
+            const overlay = document.getElementById('success-overlay');
+            const restartBtn = document.getElementById('restart-btn');
+            const scoreDisplay = document.getElementById('score');
+
+            // --- 參數設定 (來自規格書) ---
+            const ALERT_DISTANCE = 130;    // 警戒距離 (滑鼠靠近多少開始跑)
+            const EVASION_SPEED = 14;      // 逃跑速度 (每幀移動像素)
+            const CREEP_SPEED = 1.2;       // 偷偷靠近速度
+            const IDLE_THRESHOLD = 1500;   // 靜止判定時間 (毫秒)
+            const SAFE_MARGIN = 30;        // 邊界安全距離 (避免按鈕超出螢幕)
+
+            // --- 狀態變數 ---
+            let mouseX = window.innerWidth / 2;
+            let mouseY = -1000; // 初始將滑鼠置於畫面外
+            let btnX = window.innerWidth / 2;
+            let btnY = window.innerHeight / 2;
+            let btnWidth = 0;
+            let btnHeight = 0;
+            
+            let idleTimeout = null;
+            let isMouseIdle = false;
+            let currentState = 'idle'; // 'idle', 'evading', 'creeping', 'caught'
+            let score = 0;
+            let animationFrameId = null;
+            let lastMouseX = mouseX;
+            let lastMouseY = mouseY;
+
+            // 初始化按鈕尺寸並顯示
+            const initBtn = () => {
+                const rect = btn.getBoundingClientRect();
+                btnWidth = rect.width;
+                btnHeight = rect.height;
+                btn.style.opacity = '1'; // 測量完畢後顯示
+            };
+
+            // 更新 UI 狀態
+            const updateUIState = (state) => {
+                if (currentState === state) return; // 狀態未改變則不更新
+                currentState = state;
+
+                btn.className = ''; // 重置 class
+                
+                switch (state) {
+                    case 'idle':
+                        btnText.innerText = "Click Me!";
+                        btnEmoji.innerText = "😊";
+                        break;
+                    case 'evading':
+                        btn.classList.add('evading');
+                        btnText.innerText = "Yikes!";
+                        btnEmoji.innerText = "💦";
+                        break;
+                    case 'creeping':
+                        btnText.innerText = "Hey...";
+                        btnEmoji.innerText = "👀";
+                        break;
+                    case 'caught':
+                        btn.classList.add('caught');
+                        btnText.innerText = "Got me!";
+                        btnEmoji.innerText = "😵";
+                        break;
+                }
+            };
+
+            // 滑鼠移動追蹤與靜止判定
+            const handleMouseMove = (e) => {
+                // 如果在手機上觸控，會傳遞 touches，否則傳遞 clientX
+                mouseX = e.clientX || (e.touches && e.touches[0].clientX) || mouseX;
+                mouseY = e.clientY || (e.touches && e.touches[0].clientY) || mouseY;
+
+                // 檢查是否真的有移動 (避免某些瀏覽器誤判觸發)
+                if (Math.abs(mouseX - lastMouseX) > 2 || Math.abs(mouseY - lastMouseY) > 2) {
+                    isMouseIdle = false;
+                    clearTimeout(idleTimeout);
+                    
+                    // 設定計時器，X 秒後判定為靜止
+                    idleTimeout = setTimeout(() => {
+                        isMouseIdle = true;
+                    }, IDLE_THRESHOLD);
+
+                    lastMouseX = mouseX;
+                    lastMouseY = mouseY;
+                }
+            };
+
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('touchmove', handleMouseMove, { passive: true });
+
+            // 遊戲核心迴圈 (60FPS 物理與渲染)
+            const gameLoop = () => {
+                if (currentState === 'caught') {
+                    // 如果已被抓到，停止運算，保持現狀
+                    animationFrameId = requestAnimationFrame(gameLoop);
+                    return;
+                }
+
+                // 更新按鈕尺寸 (因文字改變可能影響大小)
+                const rect = btn.getBoundingClientRect();
+                btnWidth = rect.width;
+                btnHeight = rect.height;
+
+                // 計算游標與按鈕中心的距離與向量
+                const dx = mouseX - btnX;
+                const dy = mouseY - btnY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < ALERT_DISTANCE && distance > 0) {
+                    // --- 逃跑模式 ---
+                    updateUIState('evading');
+                    
+                    // 計算逃跑向量 (遠離游標)
+                    const angle = Math.atan2(dy, dx);
+                    
+                    // 加入一點隨機偏移，防止在角落卡死 (jitter)
+                    const jitter = (Math.random() - 0.5) * 0.5; 
+                    
+                    // 往反方向移動
+                    btnX -= Math.cos(angle + jitter) * EVASION_SPEED;
+                    btnY -= Math.sin(angle + jitter) * EVASION_SPEED;
+
+                } else if (isMouseIdle && distance >= ALERT_DISTANCE && mouseY > 0) {
+                    // --- 偷偷靠近模式 ---
+                    // 條件：滑鼠靜止、距離夠遠、且滑鼠確實在畫面內
+                    updateUIState('creeping');
+
+                    // 往滑鼠方向緩慢移動
+                    const angle = Math.atan2(dy, dx);
+                    btnX += Math.cos(angle) * CREEP_SPEED;
+                    btnY += Math.sin(angle) * CREEP_SPEED;
+                } else {
+                    // --- 待機模式 ---
+                    updateUIState('idle');
+                }
+
+                // --- 邊界碰撞處理 (Boundary Constraints) ---
+                const minX = btnWidth / 2 + SAFE_MARGIN;
+                const maxX = window.innerWidth - btnWidth / 2 - SAFE_MARGIN;
+                const minY = btnHeight / 2 + SAFE_MARGIN;
+                const maxY = window.innerHeight - btnHeight / 2 - SAFE_MARGIN;
+
+                if (btnX < minX) btnX = minX;
+                if (btnX > maxX) btnX = maxX;
+                if (btnY < minY) btnY = minY;
+                if (btnY > maxY) btnY = maxY;
+
+                // 應用位置 (使用 transform 確保動畫平滑且高效)
+                // btnX 和 btnY 代表按鈕中心點，需扣除一半寬高以對齊左上角 origin
+                btn.style.transform = `translate(${btnX - btnWidth / 2}px, ${btnY - btnHeight / 2}px)`;
+
+                // 呼叫下一個影格
+                animationFrameId = requestAnimationFrame(gameLoop);
+            };
+
+            // 點擊事件：成功捕獲
+            const catchButton = (e) => {
+                // 防止事件冒泡或多次觸發
+                e.stopPropagation();
+                if (currentState === 'caught') return;
+
+                updateUIState('caught');
+                score++;
+                scoreDisplay.innerText = score;
+                
+                // 顯示成功過關畫面
+                setTimeout(() => {
+                    overlay.classList.add('active');
+                }, 300);
+            };
+
+            // 支援滑鼠點擊與手機觸控
+            btn.addEventListener('mousedown', catchButton);
+            btn.addEventListener('touchstart', catchButton, { passive: true });
+
+            // 再來一次按鈕邏輯
+            restartBtn.addEventListener('click', () => {
+                overlay.classList.remove('active');
+                
+                // 重置按鈕位置到畫面中央
+                btnX = window.innerWidth / 2;
+                btnY = window.innerHeight / 2;
+                
+                // 重置滑鼠狀態與計時器
+                isMouseIdle = false;
+                clearTimeout(idleTimeout);
+                
+                // 延遲一點點時間再開始下一回合，讓使用者準備
+                setTimeout(() => {
+                    updateUIState('idle');
+                }, 500);
+            });
+
+            // 當視窗縮放時，確保按鈕不會掉到螢幕外
+            window.addEventListener('resize', () => {
+                if(currentState === 'caught') return;
+                
+                const minX = btnWidth / 2 + SAFE_MARGIN;
+                const maxX = window.innerWidth - btnWidth / 2 - SAFE_MARGIN;
+                const minY = btnHeight / 2 + SAFE_MARGIN;
+                const maxY = window.innerHeight - btnHeight / 2 - SAFE_MARGIN;
+
+                if (btnX > maxX) btnX = maxX;
+                if (btnY > maxY) btnY = maxY;
+            });
+
+            // 初始化並啟動迴圈
+            // 延遲一下確保字體與 DOM 完全加載後再抓取尺寸
+            setTimeout(() => {
+                initBtn();
+                gameLoop();
+            }, 100);
+        });
+    </script>
+</body>
+</html>
